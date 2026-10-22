@@ -7,6 +7,7 @@ from app.core.database import (
     close_database,
 )
 
+from app.api.products import router as products_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -20,6 +21,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(products_router)
 
 @app.get("/health/live", tags=["Health"])
 async def liveness():
