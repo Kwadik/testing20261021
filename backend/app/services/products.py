@@ -1,7 +1,13 @@
+from uuid import UUID
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.repositories.product import get_active_product_by_id
 from app.models.product import Product
-from app.services.storage import upload_product_image
+from app.services.storage import (
+    download_product_image,
+    upload_product_image,
+)
 
 
 async def create_product(
@@ -42,3 +48,30 @@ async def create_product(
         raise
 
     return product
+
+async def get_product_image(
+    session: AsyncSession,
+    product_id: UUID,
+) -> tuple[bytes, str] | None:
+    product = await get_active_product_by_id(session, product_id)
+
+    if product is None or not product.image_key:
+        return None
+
+    response = download_product_image(product.image_key)
+
+    if response is None:
+        return None
+
+    body = response["Body"]
+
+    try:
+        content_type = response.get(
+            "ContentType",
+            "application/octet-stream",
+        )
+        image_data = body.read()
+    finally:
+        body.close()
+
+    return image_data, content_type

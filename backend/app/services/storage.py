@@ -6,6 +6,8 @@ from PIL import Image, UnidentifiedImageError
 from app.core.config import settings
 from app.core.storage import s3_client
 
+from botocore.exceptions import ClientError
+
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
@@ -54,3 +56,16 @@ def upload_product_image(
     )
 
     return object_key
+
+def download_product_image(object_key: str):
+    try:
+        response = s3_client.get_object(
+            Bucket=settings.s3_bucket,
+            Key=object_key,
+        )
+        return response
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        if error_code in ("NoSuchKey", "404", "NotFound"):
+            return None
+        raise

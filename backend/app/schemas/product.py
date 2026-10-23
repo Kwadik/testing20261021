@@ -19,6 +19,7 @@ class ProductRead(BaseModel):
     title: str
     description: str | None
     image_key: str | None
+    image_url: str
     price: Decimal | None
     currency: str | None
     created_at: datetime
