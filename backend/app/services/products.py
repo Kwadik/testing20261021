@@ -2,17 +2,27 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.product import get_active_product_by_id
 from app.models.product import Product
 from app.services.storage import (
     download_product_image,
     upload_product_image,
 )
+from app.repositories.product import (
+    get_active_product_by_id,
+)
+from app.repositories.category import (
+    get_category_by_id,
+    get_category_by_slug,
+)
 
+
+class ProductCategoryNotFoundError(Exception):
+    pass
 
 async def create_product(
     session: AsyncSession,
     *,
+    category_id: UUID | None = None,
     title: str,
     description: str | None,
     image_data: bytes,
@@ -20,11 +30,24 @@ async def create_product(
     price=None,
     currency: str | None = None,
 ) -> Product:
+    if category_id is None:
+        category = await get_category_by_slug(session, "uncategorized")
+        if category is None:
+            raise ProductCategoryNotFoundError(
+                "Default category not found"
+            )
+        category_id = category.id
+    else:
+        category = await get_category_by_id(session, category_id)
+        if category is None:
+            raise ProductCategoryNotFoundError("Category not found")
+
     image_key = upload_product_image(image_data, content_type)
 
     product = Product(
         title=title,
         description=description,
+        category_id=category_id,
         image_key=image_key,
         price=price,
         currency=currency,

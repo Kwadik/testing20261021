@@ -1,36 +1,40 @@
 from uuid import UUID
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, Query, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
 
+from app.api.dependencies import get_session
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import SessionFactory
-from app.schemas.product import ProductRead
+from app.schemas.product import (
+    ProductRead,
+    ProductCreate,
+)
 from app.repositories.product import (
     get_active_products,
     get_active_product_by_id,
 )
+from app.repositories.category import get_category_by_id
+
 from app.services.storage import (
     download_product_image,
 )
 from app.services.products import (
+    ProductCategoryNotFoundError,
     create_product,
-    get_product_image,
+    get_product_image as get_product_image_service,
 )
 
 
 router = APIRouter(prefix="/api/v1/products", tags=["products"])
 
 
-async def get_session():
-    async with SessionFactory() as session:
-        yield session
-
 def serialize_product(product) -> ProductRead:
     return ProductRead.model_validate(
         {
             "id": product.id,
+            "category_id": product.category_id,
             "title": product.title,
             "description": product.description,
             "image_key": product.image_key,
@@ -48,13 +52,26 @@ def serialize_product(product) -> ProductRead:
 
 @router.get("", response_model=list[ProductRead])
 async def list_products(
+    category_id: UUID | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> list[ProductRead]:
-    products = await get_active_products(session)
+    if category_id is not None:
+        category = await get_category_by_id(session, category_id)
+        if category is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Category not found",
+            )
+
+    products = await get_active_products(
+        session,
+        category_id=category_id,
+    )
     return [serialize_product(product) for product in products]
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 async def create_product_endpoint(
+    category_id: UUID | None = Form(default=None),
     title: str = Form(min_length=1, max_length=255),
     description: str | None = Form(default=None),
     price: float | None = Form(default=None, ge=0),
@@ -74,57 +91,43 @@ async def create_product_endpoint(
         raise HTTPException(status_code=413, detail="Image exceeds 10 MB")
 
     try:
-        product = await create_product(
-            session,
+        # Валидируем пользовательские параметры по правилам schema
+        data = ProductCreate(
             title=title,
+            category_id=category_id,
             description=description,
-            image_data=image_data,
-            content_type=image.content_type,
-            price=price,
+            price=Decimal(str(price)) if price is not None else None,
             currency=currency,
         )
-    except ValueError as exc:
+
+        product = await create_product(
+            session,
+            title=data.title,
+            category_id=data.category_id,
+            description=data.description,
+            image_data=image_data,
+            content_type=image.content_type,
+            price=data.price,
+            currency=data.currency,
+        )
+
+    except ProductCategoryNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return serialize_product(product)
-
-@router.get("/{product_id}/image")
-async def get_product_image(
-    product_id: UUID,
-    session: AsyncSession = Depends(get_session),
-):
-    product = await get_active_product_by_id(
-        session,
-        product_id,
-    )
-
-    if product is None or not product.image_key:
-        raise HTTPException(status_code=404, detail="Image not found")
-
-    image = download_product_image(product.image_key)
-
-    if image is None:
-        raise HTTPException(status_code=404, detail="Image not found")
-
-    try:
-        content_type = image.get("ContentType", "application/octet-stream")
-        if content_type not in {"image/jpeg", "image/png", "image/webp"}:
-            raise HTTPException(status_code=415, detail="Unsupported image type")
-
-        return Response(
-            content=image["Body"].read(),
-            media_type=content_type,
-            headers={"Cache-Control": "public, max-age=3600"},
-        )
-    finally:
-        image["Body"].close()
 
 @router.get("/{product_id}/image", response_class=Response)
 async def get_product_image_endpoint(
     product_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> Response:
-    result = await get_product_image(session, product_id)
+    result = await get_product_image_service(session, product_id)
 
     if result is None:
         raise HTTPException(
