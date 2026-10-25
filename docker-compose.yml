@@ -47,6 +47,17 @@ services:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   minio_data:
