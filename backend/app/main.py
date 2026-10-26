@@ -1,19 +1,30 @@
 from contextlib import asynccontextmanager
 
+from aiogram import Bot
 from fastapi import FastAPI, HTTPException, status
 
-from app.core.database import (
-    check_database,
-    close_database,
-)
-
-from app.api.products import router as products_router
 from app.api.categories import router as categories_router
+from app.api.products import router as products_router
+from app.bot.webhook import router as telegram_router
+from app.core.config import settings
+from app.core.database import check_database, close_database
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    await close_database()
+    bot = None
+
+    if settings.telegram_bot_token:
+        bot = Bot(token=settings.telegram_bot_token)
+
+    app.state.telegram_bot = bot
+
+    try:
+        yield
+    finally:
+        if bot is not None:
+            await bot.session.close()
+        await close_database()
 
 
 app = FastAPI(
@@ -24,6 +35,8 @@ app = FastAPI(
 
 app.include_router(products_router)
 app.include_router(categories_router)
+app.include_router(telegram_router)
+
 
 @app.get("/health/live", tags=["Health"])
 async def liveness():
