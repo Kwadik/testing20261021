@@ -10,6 +10,12 @@ import {
 import { getCategories, getProducts, createOrder, type Category } from "../lib/api";
 import styles from "./page.module.scss";
 
+type TelegramUser = {
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+};
+
 export default function Home() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -51,6 +57,29 @@ export default function Home() {
     return () => controller.abort();
   }, [loadCatalog, selectedCategory]);
 
+  useEffect(() => {
+    const user = window.Telegram?.WebApp?.initDataUnsafe?.user as
+        | TelegramUser
+        | undefined;
+
+    if (!user) return;
+
+    const fullName = [user.first_name, user.last_name]
+        .filter((part) => part?.trim())
+        .join(" ");
+
+    if (fullName) {
+      setCustomerName((current) =>
+          current.trim() ? current : fullName
+      );
+    }
+
+    if (user.username) {
+      setCustomerContact((current) =>
+          current.trim() ? current : `@${user.username}`
+      );
+    }
+  }, []);
 
   async function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

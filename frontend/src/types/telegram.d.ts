@@ -17,6 +17,14 @@ interface Window {
                 secondary_bg_color?: string;
             };
 
+            initDataUnsafe?: {
+                user?: {
+                    first_name?: string;
+                    last_name?: string;
+                    username?: string;
+                };
+            };
+
             setHeaderColor?(color: string): void;
 
             onEvent?(
