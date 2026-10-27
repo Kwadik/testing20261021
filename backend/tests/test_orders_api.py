@@ -32,7 +32,7 @@ class FakeSession:
                     item.id = uuid4()
                     item.order = obj
 
-    async def refresh(self, obj):
+    async def refresh(self, obj, attribute_names=None):
         return None
 
     async def rollback(self):

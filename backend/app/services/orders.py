@@ -81,6 +81,7 @@ async def create_order(
         session.add(order)
         await session.commit()
         await session.refresh(order)
+        await session.refresh(order, attribute_names=["items"])
         return order
 
     except Exception:
