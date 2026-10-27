@@ -1,21 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Button } from "../components/ui/Button/Button";
 import { Container } from "../components/ui/Container/Container";
 import {
   ProductCard,
   type Product,
 } from "../components/ui/ProductCard/ProductCard";
-import { getCategories, getProducts, type Category } from "../lib/api";
+import { getCategories, getProducts, createOrder, type Category } from "../lib/api";
 import styles from "./page.module.scss";
 
 export default function Home() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [cart, setCart] = useState<Record<string, { product: Product; quantity: number }>>({});
   const [selectedCategory, setSelectedCategory] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerContact, setCustomerContact] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [orderError, setOrderError] = useState("");
+  const [orderSuccess, setOrderSuccess] = useState("");
 
   const loadCatalog = useCallback(async (categoryId: string, signal: AbortSignal) => {
     setLoading(true);
@@ -45,6 +51,40 @@ export default function Home() {
     return () => controller.abort();
   }, [loadCatalog, selectedCategory]);
 
+
+  async function submitOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting || Object.keys(cart).length === 0) return;
+
+    setSubmitting(true);
+    setOrderError("");
+    setOrderSuccess("");
+
+    try {
+      const order = await createOrder({
+        customer_name: customerName.trim(),
+        customer_contact: customerContact.trim(),
+        items: Object.values(cart).map(({ product, quantity }) => ({
+          product_id: product.id,
+          quantity,
+        })),
+      });
+
+      setCart({});
+      setCustomerName("");
+      setCustomerContact("");
+      setOrderSuccess(
+        `Заказ успешно создан. Номер заказа: ${order.id}. Сумма: ${order.total_amount} ${order.currency}.`,
+      );
+    } catch (err) {
+      setOrderError(
+        err instanceof Error ? err.message : "Не удалось оформить заказ. Попробуйте ещё раз.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
       <main className={styles.page}>
         <header className={styles.header}>
@@ -72,9 +112,10 @@ export default function Home() {
                 <p className={styles.eyebrow}>НАШ АССОРТИМЕНТ</p>
                 <h2 id="catalog-title">Каталог</h2>
               </div>
-              <span className={styles.count}>
-              {loading ? "Загружаем…" : `${products.length} товаров`}
-            </span>
+              <div className={styles.counters}>
+                <span className={styles.count}>{loading ? "Загружаем…" : `Товаров: ${products.length}`}</span>
+                <span className={styles.count}>В корзине: {Object.values(cart).reduce((sum, entry) => sum + entry.quantity, 0)}</span>
+              </div>
             </div>
 
             <div className={styles.filters} aria-label="Фильтр по категориям">
@@ -123,13 +164,167 @@ export default function Home() {
             ) : (
                 <div className={styles.grid}>
                   {products.map((product) => (
-                      <ProductCard key={product.id} product={product} />
+                      <ProductCard
+                          key={product.id}
+                          product={product}
+                          onAddToCart={(item) => setCart((current) => ({
+                            ...current,
+                            [item.id]: {
+                              product: item,
+                              quantity: (current[item.id]?.quantity ?? 0) + 1,
+                            },
+                          }))}
+                      />
                   ))}
                 </div>
             )}
           </section>
 
-          <footer className={styles.footer}>
+  
+        <section className={styles.cart} aria-labelledby="cart-title">
+          <div className={styles.cartHeading}>
+            <div>
+              <p className={styles.eyebrow}>ВАШ ВЫБОР</p>
+              <h2 id="cart-title">Корзина</h2>
+            </div>
+            <span className={styles.count}>
+              Товаров: {Object.values(cart).reduce((sum, entry) => sum + entry.quantity, 0)}
+            </span>
+          </div>
+
+          {Object.values(cart).length === 0 ? (
+            <div className={styles.message}>
+              Корзина пока пуста. Добавьте товары из каталога.
+            </div>
+          ) : (
+            <>
+              <ul className={styles.cartList}>
+                {Object.values(cart).map(({ product, quantity }) => {
+                  const price = Number(product.price);
+                  const money = (value: number) =>
+                    new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
+                  const currency = product.currency?.trim() || "RUB";
+
+                  return (
+                    <li className={styles.cartItem} key={product.id}>
+                      <div className={styles.cartProduct}>
+                        <strong>{product.title}</strong>
+                        <span>{money(price)}{currency === "RUB" ? " ₽" : ` ${currency}`} за шт.</span>
+                      </div>
+
+                      <div className={styles.cartActions}>
+                        <div className={styles.quantity}>
+                          <Button
+                            variant="secondary"
+                            aria-label={`Уменьшить количество: ${product.title}`}
+                            onClick={() => setCart((current) => {
+                              const entry = current[product.id];
+                              if (!entry || entry.quantity <= 1) {
+                                const next = { ...current };
+                                delete next[product.id];
+                                return next;
+                              }
+                              return {
+                                ...current,
+                                [product.id]: { ...entry, quantity: entry.quantity - 1 },
+                              };
+                            })}
+                          >−</Button>
+                          <span>{quantity}</span>
+                          <Button
+                            variant="secondary"
+                            aria-label={`Увеличить количество: ${product.title}`}
+                            disabled={quantity >= 99}
+                            onClick={() => setCart((current) => ({
+                              ...current,
+                              [product.id]: {
+                                ...current[product.id],
+                                quantity: Math.min(99, current[product.id].quantity + 1),
+                              },
+                            }))}
+                          >+</Button>
+                        </div>
+
+                        <strong className={styles.lineTotal}>
+                          {money(price * quantity)}{currency === "RUB" ? ` ₽` : ` ${currency}`}
+                        </strong>
+
+                        <Button
+                          variant="ghost"
+                          onClick={() => setCart((current) => {
+                            const next = { ...current };
+                            delete next[product.id];
+                            return next;
+                          })}
+                        >Удалить</Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <div className={styles.cartTotal}>
+                <span>Предварительная сумма</span>
+                <strong>
+                  {new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(
+                    Object.values(cart).reduce(
+                      (sum, entry) => sum + Number(entry.product.price) * entry.quantity, 0,
+                    ),
+                  )}
+                  {Object.values(cart)[0]?.product.currency
+                    ? ` ${Object.values(cart)[0].product.currency}`
+                    : " ₽"}
+                </strong>
+              </div>
+              <p className={styles.cartNote}>
+                Итоговая стоимость будет проверена сервером при оформлении заказа.
+              </p>
+              <form className={styles.orderForm} onSubmit={submitOrder}>
+                <h3>Оформление заказа</h3>
+
+                <label className={styles.formField}>
+                  Ваше имя
+                  <input
+                    name="customer_name"
+                    autoComplete="name"
+                    value={customerName}
+                    onChange={(event) => setCustomerName(event.target.value)}
+                    required
+                    maxLength={120}
+                    placeholder="Как к вам обращаться"
+                  />
+                </label>
+
+                <label className={styles.formField}>
+                  Контакт для связи
+                  <input
+                    name="customer_contact"
+                    autoComplete="email"
+                    value={customerContact}
+                    onChange={(event) => setCustomerContact(event.target.value)}
+                    required
+                    maxLength={255}
+                    placeholder="Телефон, Telegram или email"
+                  />
+                </label>
+
+                {orderError && <p className={styles.orderError} role="alert">{orderError}</p>}
+
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Оформляем заказ…" : "Подтвердить заказ"}
+                </Button>
+
+                <p className={styles.cartNote}>
+                  Оплаты на сайте нет. После оформления заказ будет сохранён в системе.
+                </p>
+              </form>
+
+            </>
+          )}
+          {orderSuccess && <p className={styles.orderSuccess} role="status">{orderSuccess}</p>}
+        </section>
+
+        <footer className={styles.footer}>
             <span>тестовый магазин</span>
             <span><a href="https://t.me/kwadik" target="_blank">Kwadik</a></span>
           </footer>

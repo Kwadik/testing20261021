@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, status
 
 from app.api.categories import router as categories_router
 from app.api.products import router as products_router
+from app.api.orders import router as orders_router
 from app.bot.webhook import router as telegram_router
 from app.core.config import settings
 from app.core.database import check_database, close_database
@@ -34,6 +35,7 @@ app = FastAPI(
 )
 
 app.include_router(products_router)
+app.include_router(orders_router)
 app.include_router(categories_router)
 app.include_router(telegram_router)
 

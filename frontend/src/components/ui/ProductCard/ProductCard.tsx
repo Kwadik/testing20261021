@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "../Button/Button";
 import styles from "./ProductCard.module.scss";
 
 export type Product = {
@@ -9,20 +10,31 @@ export type Product = {
     title: string;
     description: string | null;
     image_url: string | null;
-    price: string;
+    price: string | null;
     currency: string | null;
 };
 
 type ProductCardProps = {
     product: Product;
+    onAddToCart: (product: Product) => void;
 };
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, onAddToCart }: ProductCardProps) {
     const [imageFailed, setImageFailed] = useState(false);
 
-    const price = new Intl.NumberFormat("ru-RU", {
-        maximumFractionDigits: 2,
-    }).format(Number(product.price));
+    const currency = product.currency?.trim() || "RUB";
+
+    const hasPrice =
+        product.price !== null &&
+        product.price.trim() !== "" &&
+        Number.isFinite(Number(product.price)) &&
+        Number(product.price) >= 0;
+
+    const price = hasPrice
+        ? new Intl.NumberFormat("ru-RU", {
+            maximumFractionDigits: 2,
+        }).format(Number(product.price))
+        : null;
 
     return (
         <article className={styles.card}>
@@ -51,11 +63,17 @@ export function ProductCard({ product }: ProductCardProps) {
                 )}
 
                 <div className={styles.footer}>
-                    <p className={styles.price}>
-                        {price}
-                        {product.currency ? ` ${product.currency}` : " ₽"}
-                    </p>
-                    <span className={styles.details}>Товар магазина</span>
+                    <div className={styles.details}>
+                        <p className={styles.price}>
+                            {price !== null
+                                ? `${price} ${currency === "RUB" ? "₽" : currency}`
+                                : "Цена не указана"}
+                        </p>
+                        <span className={styles.someLabel}>Товар магазина</span>
+                    </div>
+                    <div className={styles.buttonWrapper}>
+                        <Button className={styles.submitButton} disabled={!hasPrice} onClick={() => onAddToCart(product)}>В корзину</Button>
+                    </div>
                 </div>
             </div>
         </article>
